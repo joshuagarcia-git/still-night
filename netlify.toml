@@ -1,0 +1,37 @@
+# Netlify serves pre-baked .dvs.br payloads as-is with Content-Encoding: br.
+# Auto-compression only covers text MIMEs — application/octet-stream passes
+# through uncompressed unless we tell the edge layer the file is already
+# Brotli-encoded. The browser decodes transparently before the bytes reach
+# JS, so the prebaked-loader reads the full uncompressed blob.
+#
+# See: answers.netlify.com/t/serving-pre-compressed-brotli-files/53515
+[[headers]]
+  for = "/assets/*.dvs.br"
+  [headers.values]
+    Content-Encoding = "br"
+    Content-Type = "application/octet-stream"
+    Cache-Control = "public, max-age=31536000, immutable"
+    Vary = "Accept-Encoding"
+
+# Content Security Policy — permissive tier. Locks down object/base/frame
+# but allows inline scripts + styles because the site uses inline style
+# attributes and one inline <script> for AudioContext setup. External
+# domain allowlist:
+#   script-src  jsdelivr      → Tone.js CDN bundle
+#   connect-src jsdelivr      → Tone.js source map (devtools only)
+#   connect-src unpkg         → detect-gpu runtime benchmark fetch
+# blob: URLs are pervasive in audio:
+#   script-src  blob:         → Tone.js registers AudioWorklets via
+#                               blob-URL module loading
+#   connect-src blob:         → Tone.js fetches the blob body
+#   worker-src  blob:         → worklet + Web Worker creation scope
+#   media-src   blob:         → freeze-to-buffer audio captures
+# 'wasm-unsafe-eval' is narrow (WASM only, not general eval) and is
+# required for Chrome extension content scripts that compile WASM on
+# the page — Grammarly, password managers, translators, etc. Without
+# it, those extensions throw CompileError on our page. Our own code
+# doesn't use WASM, so this is purely for extension friendliness.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob: https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self' blob: https://cdn.jsdelivr.net https://unpkg.com; worker-src 'self' blob:; media-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"

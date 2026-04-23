@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Pre-baked payloads: only the Brotli-compressed variant ships (committed).
+# The raw .dvs is a build artifact — regenerable via `npm run prebake`.
+assets/*.dvs
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Local agent state
+.claude/
+
+# Misc
+nul
+*.log
+*.asd
+
+# Local testing tools (downloaded ad-hoc for diagnostic sessions)
+cloudflared.exe
+cloudflared
+
+# Build output
+dist/
+
+# Local Netlify folder
+.netlify

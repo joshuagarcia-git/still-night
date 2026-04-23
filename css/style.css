@@ -1,0 +1,1348 @@
+@font-face {
+  font-family: 'Editorial New';
+  src: url('../assets/fonts/EditorialNew-Ultralight.woff2') format('woff2');
+  font-weight: 200;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Neue Haas Display';
+  src: url('../assets/fonts/NeueHaasDisplayRoman.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Neue Haas Display';
+  src: url('../assets/fonts/NeueHaasDisplayLight.woff2') format('woff2');
+  font-weight: 300;
+  font-display: swap;
+}
+
+:root {
+  --bg-primary: #0b0b0d;
+  --bg-panel: #1a1a1a;
+  --text-primary: #e5e5e5;
+  --text-secondary: #999;
+  --border: #2a2a2a;
+  --radius: 4px;
+
+  /* Status/alert color — currently only used by the audio transient indicator. */
+  --status-alert: orange;
+
+  /* Shared font stack — centralizes the Neue Haas fallback chain.
+     System fonts kick in if the webfont fails to load. */
+  --font-display: 'Neue Haas Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+  /* Button elevation tokens — three states, shared across the cool-white
+     utility family (toolbar-btn, mode-pills, about-close-btn, canvas-retry-btn).
+     Intro Play uses its own warm-family recipe and is not unified here.
+
+     Edge hairline is an inset box-shadow layer (not a CSS border) — avoids
+     iOS 16+ composited-layer 0.5px rendering bug (affects border only, not
+     inset shadows), sidesteps border-box layout shift, stacks cleanly with
+     the drop shadow. No directional top-light layer — it rendered as
+     asymmetric thickness on circular buttons. Depth now comes from edge +
+     drop only.  Alpha values (0.08/0.16/0.06) tuned for dark backdrops per
+     Linear/Vercel practice. None of these buttons use backdrop-filter —
+     they all sit on solid dark backgrounds where blur is a no-op, and
+     backdrop-filter on `border-radius: 50%` creates compositor-level AA
+     artifacts on the circle's edge (Chromium bug 1229700, WebKit 202279). */
+  --elevation-btn-rest:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 1px 3px rgba(0, 0, 0, 0.3);
+  --elevation-btn-hover:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.16),
+    0 1px 3px rgba(0, 0, 0, 0.30),
+    0 4px 12px rgba(0, 0, 0, 0.12);
+  --elevation-btn-pressed:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+    inset 0 1px 2px rgba(0, 0, 0, 0.2),
+    0 1px 2px rgba(0, 0, 0, 0.15);
+
+  /* Overlay cream palette — used in intro, about, and error overlays.
+     Distinct from --text-primary/secondary (grayscale, used in sidebar).
+     Most cream-* values share the same base rgb(245, 236, 218) at different
+     alphas. --cream-subtitle is the exception: a separate warm hue (#d9d0bc)
+     used canonically for subtitle text in both intro and about overlays. */
+  --cream-primary: #f5ecda;                       /* titles, button labels, hints */
+  --cream-secondary: rgba(245, 236, 218, 0.82);   /* body copy */
+  --cream-subtitle: #d9d0bc;                      /* subtitles — warm cream */
+  --cream-muted: rgba(245, 236, 218, 0.4);        /* credits, link default */
+  --cream-muted-hover: rgba(245, 236, 218, 0.7);  /* link hover intermediate */
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* Hide the default disclosure triangle on all <details> panels — we render our own. */
+summary::-webkit-details-marker {
+  display: none;
+}
+summary {
+  list-style: none;
+}
+
+body {
+  font-family: var(--font-display);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+  min-height: 100dvh;
+  /* Safe area insets for notched devices (viewport-fit=cover) */
+  padding:
+    env(safe-area-inset-top, 0)
+    env(safe-area-inset-right, 0)
+    env(safe-area-inset-bottom, 0)
+    env(safe-area-inset-left, 0);
+}
+
+/* Focus indicators — keyboard navigation only (mouse clicks stay clean) */
+:focus-visible {
+  outline: 2px solid rgba(200, 180, 120, 0.6);
+  outline-offset: 2px;
+}
+
+/* Main layout */
+.app-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  height: 100vh;
+  height: 100dvh;
+}
+.app-layout.panel-visible {
+  grid-template-columns: 1fr 280px;
+}
+.app-layout.panel-visible .control-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+/* Canvas area — wraps the aspect-locked content stack (canvas + toolbar).
+   The .canvas-stack inside is a single unit — when it scales via --canvas-scale,
+   both the canvas and its toolbar shrink/grow together, staying aligned. The
+   stack is centered within canvas-area. Padding uses safe-area insets for
+   notched devices (iPhone/Android cutouts). */
+.canvas-area {
+  display: grid;
+  place-items: center;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 0;
+  padding: clamp(8px, 2vmin, 32px);
+  padding-top:    max(clamp(8px, 2vmin, 32px), env(safe-area-inset-top));
+  padding-right:  max(clamp(8px, 2vmin, 32px), env(safe-area-inset-right));
+  padding-bottom: max(clamp(8px, 2vmin, 32px), env(safe-area-inset-bottom));
+  padding-left:   max(clamp(8px, 2vmin, 32px), env(safe-area-inset-left));
+  overflow: hidden;
+}
+
+/* Canvas stack — the painting + toolbar as ONE visual unit. Shrinks as a
+   whole via --canvas-scale so children (canvas + toolbar) always move
+   together. Grid rows: 1fr for canvas, auto for toolbar. Max-width and
+   max-height cap the unit at 75% of the canvas-area. */
+.canvas-stack {
+  --canvas-scale: 0.92;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  width: 100%;
+  height: 100%;
+  max-width:  calc(100% * var(--canvas-scale));
+  max-height: calc(100% * var(--canvas-scale));
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Hover-capable devices (desktop/trackpad): widen the canvas↔toolbar gap
+   to give the ::after tooltips breathing room above the toolbar buttons.
+   Touch devices keep the tighter 12px — tooltips are display:none there
+   anyway (see the `@media (hover: none)` block) and mobile benefits from
+   the reclaimed canvas height. Accessibility caveat: touch users have no
+   way to see the tooltip copy at all — separate UX problem to address. */
+@media (hover: hover) {
+  .canvas-stack {
+    gap: 24px;
+  }
+}
+
+.canvas-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg-primary);
+  overflow: hidden;
+}
+
+#glow-div {
+  position: fixed;
+  pointer-events: none;
+  z-index: 0;
+  will-change: box-shadow;
+}
+
+#preview-canvas,
+#gl-canvas,
+#trail-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  /* Load-bearing: canvas intrinsic dimensions (set by computeCanvasTarget in ui.js)
+     don't always match the CSS box aspect. `object-fit: contain` letterboxes the
+     drawing surface; computeContentRect() in ui.js assumes this behavior for click
+     coordinate mapping. Removing this decouples visual render from click math. */
+  object-fit: contain;
+  touch-action: none;
+}
+
+#preview-canvas,
+#gl-canvas {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+#trail-canvas {
+  pointer-events: none;
+  z-index: 5;
+}
+
+#preview-canvas {
+  display: none;
+}
+
+#gl-canvas {
+  display: none;
+}
+
+#gl-canvas.active {
+  display: block;
+}
+
+.canvas-placeholder {
+  position: absolute;
+  inset: 0;
+  z-index: 8;  /* above gl-canvas (0) + trail-canvas (5), below intro-overlay (10) */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+}
+
+.canvas-placeholder[hidden] {
+  display: none;
+}
+
+/* ── Moon loading indicator ──
+   Crescent moon with gradient edge stroke, feTurbulence grain, drop-shadow glow.
+   Entrance: fade + scale in (0.6s). Breathe: opacity pulse (4.5s). Float: drift (6s).
+   Exit: .moon-exit dissolves over 0.5s, placeholder hidden at 800ms. */
+.moon-loader {
+  position: relative;
+  width: clamp(48px, 8vw, 80px);
+  height: clamp(48px, 8vw, 80px);
+  opacity: 0;
+  transform: scale(0.92);
+  filter: drop-shadow(0 0 2px rgba(185, 164, 37, 0.5))
+          drop-shadow(0 0 6px rgba(185, 164, 37, 0.25))
+          drop-shadow(0 0 16px rgba(185, 164, 37, 0.12));
+  animation: moon-enter 0.6s cubic-bezier(0.0, 0.0, 0.2, 1) forwards,
+             moon-breathe 4.5s ease-in-out 0.6s infinite,
+             moon-float 6s ease-in-out infinite;
+}
+
+@keyframes moon-enter {
+  from { opacity: 0; transform: scale(0.92); }
+  to   { opacity: 0.6; transform: scale(1); }
+}
+
+/* Exit: moon dissolves */
+.moon-loader.moon-exit {
+  animation: moon-leave 0.5s cubic-bezier(0.4, 0.0, 1, 1) forwards;
+}
+
+@keyframes moon-leave {
+  0%   { opacity: 1; transform: scale(1); }
+  40%  { opacity: 0; transform: scale(0.97); }
+  100% { opacity: 0; transform: scale(0.97); }
+}
+
+@keyframes moon-breathe {
+  0%, 100% { opacity: 0.6; }
+  50%      { opacity: 1; }
+}
+
+@keyframes moon-float {
+  0%, 100% { translate: 0 1px; }
+  50%      { translate: 0 -1px; }
+}
+
+.moon-svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+
+/* ── Error type scale ──
+   Same round(scale * px / 48, 1px) pattern as intro, with a higher floor
+   so body text stays readable on mobile. At 48px: title 18, body 16, btn 16.
+   At 36px (mobile floor): title 14, body 12, btn 12. */
+.canvas-placeholder.canvas-error {
+  /* --s floor of 36px (not 28 like intro/about) is purposeful. Errors are
+     functional, not decorative — users need to read them quickly, not linger.
+     A 28 floor would shrink body text to ~9px on phones, below every major
+     design system's error-text minimum. 36 keeps body at 12px minimum. */
+  --s: clamp(36px, 3.5vw + 0.25rem, 48px);
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: round(calc(var(--s) * 16 / 48), 1px);
+  font-weight: 300;
+  line-height: 1.75;
+  color: var(--cream-secondary);
+  letter-spacing: calc(var(--s) * 1 / 48);
+  text-wrap: pretty;
+  padding: 24px;
+  max-width: min(620px, 85vw);
+  margin: auto;
+}
+
+.canvas-placeholder.canvas-error strong {
+  display: block;
+  margin-bottom: round(calc(var(--s) * 6 / 48), 1px);
+  font-size: round(calc(var(--s) * 18 / 48), 1px);
+  font-weight: 400;
+  color: var(--cream-primary);
+  text-wrap: balance;
+}
+
+/* Title/body separator is now the margin on the block-level strong above.
+   Hide the <br> that existing HTML uses between title and body — keeps
+   innerHTML strings unchanged while preventing a double line break. */
+.canvas-placeholder.canvas-error br {
+  display: none;
+}
+
+/* Pill-shaped CTA base — shared font, shape, padding, cursor between Retry
+   (cool palette) and intro Play (warm palette). backdrop-filter lives on
+   intro-play-btn only (it sits over the painting, where blur does real
+   work); canvas-retry-btn sits on a solid dark error-state bg where it
+   would be a no-op + introduce a compositor-edge artifact. */
+.canvas-retry-btn,
+.intro-play-btn {
+  font-family: var(--font-display);
+  font-size: clamp(12px, round(calc(var(--s) * 16 / 48), 1px), 16px);
+  font-weight: 400;
+  letter-spacing: calc(var(--s) * 0.6 / 48);
+  color: var(--cream-primary);
+  border-radius: 100px;
+  padding: round(calc(var(--s) * 10 / 48), 1px) round(calc(var(--s) * 28 / 48), 1px);
+  cursor: pointer;
+  transition: background 0.2s, box-shadow 0.2s, transform 0.15s;
+}
+
+.canvas-retry-btn {
+  margin-top: round(calc(var(--s) * 16 / 48), 1px);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.canvas-retry-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: var(--elevation-btn-hover);
+  transform: translateY(-0.5px);
+}
+
+.canvas-retry-btn:active:not(:disabled) {
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: var(--elevation-btn-pressed);
+  transform: translateY(0.5px);
+}
+
+.canvas-retry-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Control panel */
+.control-panel {
+  display: none;
+  padding: 1.25rem;
+  border-left: 1px solid var(--border);
+  background: var(--bg-panel);
+  overflow-y: auto;
+}
+
+.control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.control-group label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.control-group select {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.6rem;
+  font-size: 0.85rem;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.control-group select:focus {
+  border-color: var(--text-primary);
+}
+
+/* Keyboard-only focus ring — restores the outline that `outline: none` above suppresses. */
+.control-group select:focus-visible {
+  outline: 2px solid rgba(200, 180, 120, 0.6);
+  outline-offset: 2px;
+}
+
+.control-group select:hover {
+  border-color: var(--text-secondary);
+}
+
+
+
+/* Buttons */
+/* Sliders */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+input[type="range"]:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+}
+
+/* Keyboard-only focus ring — restores the outline that `outline: none` above suppresses. */
+input[type="range"]:focus-visible {
+  outline: 2px solid rgba(200, 180, 120, 0.6);
+  outline-offset: 2px;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+}
+
+.control-group label span {
+  float: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Stats panel */
+.stats-panel {
+  margin-top: auto;
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+}
+
+.stats-panel summary {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  user-select: none;
+}
+
+.copy-stats-btn {
+  margin-left: auto;
+  margin-right: 0.5rem;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.65rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.copy-stats-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-primary);
+}
+
+.stats-panel summary::after {
+  content: '+';
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  transition: transform 0.15s;
+}
+
+.stats-panel[open] summary::after {
+  content: '\2212';
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  padding-top: 0.75rem;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.stat-item.full-width {
+  grid-column: 1 / -1;
+}
+
+.stat-label {
+  font-size: 0.65rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.stat-value {
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-value.highlight {
+  color: #fff;
+  font-weight: 600;
+}
+
+.stats-empty {
+  grid-column: 1 / -1;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  padding: 0.25rem 0;
+}
+
+.vortex-control-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.vortex-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.vortex-control-label {
+  font-size: 0.65rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.vortex-control-value {
+  font-size: 0.65rem;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Scrollbar */
+.control-panel::-webkit-scrollbar {
+  width: 4px;
+}
+
+.control-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.control-panel::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
+
+/* Panel copy buttons (reusable) */
+.panel-copy-btn {
+  margin-left: auto;
+  margin-right: 0.5rem;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.65rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.panel-copy-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-primary);
+}
+
+
+/* Vortex group panel */
+.vortex-group-panel {
+  border-top: 1px solid var(--border);
+  padding-top: 0.75rem;
+}
+
+.vortex-group-panel summary {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  user-select: none;
+}
+
+.vortex-group-panel summary::after {
+  content: '+';
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  transition: transform 0.15s;
+}
+
+.vortex-group-panel[open] summary::after {
+  content: '\2212';
+}
+
+/* Sidebar tuning panels — shared by Mood Tuning + per-region tuning panels. */
+.audio-tuning-panel {
+  border-top: 1px solid var(--border);
+  padding-top: 0.75rem;
+}
+
+.audio-tuning-panel summary {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  user-select: none;
+}
+
+.audio-tuning-panel summary::after {
+  content: '+';
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  transition: transform 0.15s;
+}
+
+.audio-tuning-panel[open] summary::after {
+  content: '\2212';
+}
+
+.audio-tuning-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-top: 0.75rem;
+}
+
+/* Small-caps section header reused across tuning panels (wind harp, village, horizon, sky gust, wake, etc.). */
+.audio-meter-label {
+  font-size: 0.65rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  width: 52px;
+  flex-shrink: 0;
+}
+
+/* Audio tuning sliders */
+.audio-tuning-content input[type="range"] {
+  width: 100%;
+}
+
+/* ── Responsive breakpoints ── */
+
+/* Tablet: narrower sidebar */
+@media (max-width: 1024px) {
+  .app-layout.panel-visible {
+    grid-template-columns: 1fr 240px;
+  }
+}
+
+/* Phone: single column, panel stacks below */
+@media (max-width: 640px) {
+  .app-layout {
+    grid-template-columns: 1fr;
+    height: 100vh;
+    height: 100dvh;
+  }
+  .app-layout.panel-visible {
+    grid-template-columns: 1fr;
+  }
+
+  .control-panel {
+    border-left: none;
+    border-top: 1px solid var(--border);
+  }
+
+}
+
+/* Touch devices: 44pt minimum touch targets + suppress hover tooltips */
+@media (hover: none) {
+  .toolbar-btn {
+    width: 44px;
+    height: 44px;
+  }
+
+  .toolbar-icon {
+    width: 22px;
+    height: 22px;
+  }
+
+  .toolbar-btn::after {
+    display: none;
+  }
+
+  .mode-pills {
+    min-height: 44px;   /* touch target: outer track grows, inner pill becomes 38px */
+  }
+
+  .mode-pill::after {
+    display: none;
+  }
+
+  .about-close-btn {
+    width: 44px;
+    height: 44px;
+  }
+
+  .about-close-btn svg {
+    width: 20px;
+    height: 20px;
+  }
+}
+
+
+/* ── Intro overlay ── */
+.intro-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.intro-overlay[hidden] {
+  display: none;
+}
+
+/* Dismiss animation */
+.intro-overlay.fade-out {
+  animation: intro-dismiss 300ms cubic-bezier(0.4, 0.0, 1, 1) forwards;
+  pointer-events: none;  /* prevent disabled button cursor during fade-out */
+}
+
+/* ── Staggered entrance: children start invisible, animate in sequentially ── */
+.intro-overlay > * {
+  opacity: 0;
+}
+
+.intro-overlay:not([hidden]):not(.fade-out) .intro-title {
+  animation: intro-rise 600ms cubic-bezier(0.0, 0.0, 0.2, 1) forwards;
+}
+
+.intro-overlay:not([hidden]):not(.fade-out) .intro-subtitle {
+  animation: intro-rise-sm 500ms cubic-bezier(0.0, 0.0, 0.2, 1) 300ms forwards;
+}
+
+.intro-overlay:not([hidden]):not(.fade-out) .intro-play-btn {
+  animation: intro-appear 400ms cubic-bezier(0.0, 0.0, 0.2, 1) 600ms forwards;
+}
+
+.intro-overlay:not([hidden]):not(.fade-out) .intro-hint {
+  animation: intro-appear 300ms cubic-bezier(0.0, 0.0, 0.2, 1) 800ms forwards;
+}
+
+/* ── Intro type scale ──
+   Single --intro-scale reference. Every size = round(scale * px / 48, 1px).
+   At 48px: title 48, subtitle 20, button 16, hint 14 — all integers.
+   Letter-spacing unrounded (sub-pixel is fine for text advance). */
+.intro-overlay {
+  --s: clamp(28px, 3.5vw + 0.25rem, 48px);
+}
+
+.intro-title {
+  font-family: 'Editorial New', Georgia, serif;
+  font-size: round(var(--s), 1px);
+  font-weight: 200;
+  color: var(--cream-primary);
+  letter-spacing: calc(var(--s) * 2 / 48);
+  margin: 0 0 round(calc(var(--s) * 8 / 48), 1px);
+  text-shadow: 0 0 20px rgba(0, 0, 0, 0.8), 0 0 40px rgba(0, 0, 0, 0.4);
+}
+
+.intro-subtitle {
+  font-family: var(--font-display);
+  font-size: clamp(14px, round(calc(var(--s) * 20 / 48), 1px), 20px);
+  font-weight: 300;
+  color: var(--cream-subtitle);
+  letter-spacing: calc(var(--s) * 1 / 48);
+  margin: 0 0 round(calc(var(--s) * 32 / 48), 1px);
+  text-shadow: 0 0 20px rgba(0, 0, 0, 0.8), 0 0 40px rgba(0, 0, 0, 0.4);
+}
+
+.intro-play-btn {
+  background: rgba(200, 180, 120, 0.10);
+  border: 0.5px solid rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  pointer-events: auto;
+}
+/* Override browser default not-allowed cursor on disabled Play button.
+   Button is disabled after click to prevent double-tap; cursor should
+   stay as pointer (or default) during the 300ms fade-out animation. */
+.intro-play-btn:disabled {
+  cursor: default;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+button.intro-play-btn:hover {
+  background: rgba(232, 224, 204, 0.18);
+  border-color: rgba(232, 224, 204, 0.30);
+  box-shadow:
+    inset 0 0.5px 0 rgba(232, 224, 204, 0.10),
+    0 1px 3px rgba(0, 0, 0, 0.30),
+    0 6px 14px rgba(0, 0, 0, 0.12);
+  transform: translateY(-0.5px);
+}
+
+button.intro-play-btn:active {
+  background: rgba(232, 224, 204, 0.04);
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.2),
+    0 1px 2px rgba(0, 0, 0, 0.2);
+  transform: translateY(0.5px);
+}
+
+.intro-hint {
+  display: flex;
+  align-items: center;
+  gap: round(calc(var(--s) * 5 / 48), 1px);
+  font-family: var(--font-display);
+  font-size: clamp(10px, round(calc(var(--s) * 14 / 48), 1px), 14px);
+  font-weight: 300;
+  line-height: 1;
+  color: var(--cream-primary);
+  letter-spacing: calc(var(--s) * 1 / 48);
+  text-shadow: 0 0 16px rgba(0, 0, 0, 0.8), 0 0 32px rgba(0, 0, 0, 0.4);
+  margin: round(calc(var(--s) * 24 / 48), 1px) 0 0;
+}
+
+.intro-hint-icon {
+  width: clamp(10px, round(calc(var(--s) * 14 / 48), 1px), 14px);
+  height: clamp(10px, round(calc(var(--s) * 14 / 48), 1px), 14px);
+  flex-shrink: 0;
+}
+
+/* Title: fade in + rise 16px */
+@keyframes intro-rise {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Subtitle: fade in + rise 10px */
+@keyframes intro-rise-sm {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Button & hint: pure fade, no motion */
+@keyframes intro-appear {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Dismiss: everything fades out together */
+@keyframes intro-dismiss {
+  to { opacity: 0; transform: scale(0.97); }
+}
+/* Release the button's backdrop-filter during the 300ms fade-out. The Play click
+   also kicks off renderer.startReveal() — an expensive canvas animation that runs
+   simultaneously. Dropping the blur here frees GPU for the reveal. Don't remove. */
+.intro-overlay.fade-out .intro-play-btn {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* ── Canvas Toolbar (row below canvas: utility group left, mode pills right) ──
+   Width is set via inline style.width by ui.js (_syncToolbarToPaintingWidth) to
+   match the painting's rendered width — the canvas container is letterboxed when
+   viewport aspect doesn't match painting aspect (2048/1622), so toolbar needs to
+   be sized independently to align its children with the painting's visual edges.
+   Fallback width 100% applies only if JS fails to run. Safe-area padding lives
+   on .canvas-area (the grid parent), not here. */
+.canvas-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 100%;
+  justify-self: center;
+  flex-shrink: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.4s ease;
+}
+
+.toolbar-group {
+  display: flex;
+  gap: 12px;
+}
+
+.canvas-toolbar.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Circular icon buttons — restored to production recipe. Removing the border
+   + backdrop-filter exposed the fill's AA gradient at the circular perimeter,
+   which rendered as an uneven "gray ring" — the border previously sat on top
+   of that AA and obscured it. Box-shadow is also overridden (not using the
+   token) because a real border defines the edge here; the token's full inset
+   ring would stack redundantly with the border. Keeps the token-based path
+   for mode-pills/about-close-btn/canvas-retry-btn which don't have borders. */
+.toolbar-btn {
+  position: relative;  /* anchors the ::after tooltip */
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  color: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  box-shadow:
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.08),
+    0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: background 0.2s, color 0.2s, border-color 0.2s,
+              box-shadow 0.2s, transform 0.15s;
+}
+
+.toolbar-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.22);
+  color: rgba(255, 255, 255, 0.9);
+  box-shadow:
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.10),
+    0 1px 3px rgba(0, 0, 0, 0.30),
+    0 4px 12px rgba(0, 0, 0, 0.12);
+  transform: translateY(-0.5px);
+}
+
+.toolbar-btn:active {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.10);
+  color: rgba(255, 255, 255, 0.7);
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.2),
+    0 1px 2px rgba(0, 0, 0, 0.15);
+  transform: translateY(0.5px);
+}
+
+.toolbar-icon {
+  width: 20px;
+  height: 20px;
+}
+
+/* Mute icon state — CSS controls visibility, JS toggles .muted class */
+#mute-btn .icon-muted { display: none; }
+#mute-btn.muted .icon-unmuted { display: none; }
+#mute-btn.muted .icon-muted { display: inline; }
+
+/* Tooltip */
+.toolbar-btn::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1;       /* collapse line-box so no-descender words don't float high */
+  letter-spacing: 0.2px;
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.10);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 6px 8px;
+  white-space: nowrap;
+  box-shadow:
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.08),
+    0 2px 8px rgba(0, 0, 0, 0.3);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.toolbar-btn:hover::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* ── Mode pills — musical mode switch (Minor / Major) ──
+   Segmented control, cool-white utility family. Active pill has subtle
+   background fill; inactive is transparent. Tooltip pattern mirrors
+   .toolbar-btn::after. */
+.mode-pills {
+  display: flex;
+  align-items: stretch;
+  min-height: 40px;         /* matches .toolbar-btn height — sibling rhythm */
+  padding: 3px;             /* inset gap so active pill "floats" inside the track */
+  border-radius: 999px;     /* pill-shaped track */
+  background: rgba(255, 255, 255, 0.08);   /* matches .toolbar-btn bg for sibling harmony */
+  box-shadow: var(--elevation-btn-rest);
+}
+
+.mode-pill {
+  position: relative;   /* anchors the ::after tooltip */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 0;          /* equal width — active thumb lands at predictable positions */
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 400;     /* matches other UI text — weight 500 exhibited optical
+                           asymmetry on mobile (thicker ascenders shifted visual
+                           center upward beyond what metric compensation could
+                           reach). Weight 400 renders at visual ink-center with
+                           symmetric padding across all devices. */
+  line-height: 1;
+  letter-spacing: 0.5px;
+  color: rgba(255, 255, 255, 0.55);
+  background: transparent;
+  border: none;
+  border-radius: 999px; /* match the track — inner pill is also fully rounded */
+  padding: 8px 16px;     /* 4px grid — same padding for all devices */
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s,
+              box-shadow 0.2s, transform 0.15s;  /* matches .toolbar-btn */
+}
+
+.mode-pill:hover:not(.is-active):not([aria-disabled="true"]) {
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.mode-pill.is-active {
+  background: rgba(255, 255, 255, 0.14);  /* track-to-pill contrast preserved (0.08 delta) */
+  color: rgba(255, 255, 255, 0.95);
+  box-shadow:
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.14),  /* top light-catch — subtle raise */
+    0 1px 2px rgba(0, 0, 0, 0.25);              /* soft drop — pill floats on track */
+}
+
+/* Press state — mirrors .toolbar-btn:active (translateY + inset press shadow).
+   Applies to both active and inactive pills; for inactive, adds a subtle bg dim
+   so the press registers without requiring prior hover state. */
+.mode-pill:active:not([aria-disabled="true"]) {
+  transform: translateY(0.5px);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18);  /* overrides is-active's raise */
+}
+
+.mode-pill:active:not(.is-active):not([aria-disabled="true"]) {
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.mode-pill[aria-disabled="true"] {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Tooltip on mode pills — matches .toolbar-btn::after */
+.mode-pill::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: 0.2px;
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.10);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 6px 8px;
+  white-space: nowrap;
+  box-shadow:
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.08),
+    0 2px 8px rgba(0, 0, 0, 0.3);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.mode-pill:hover::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* ── About overlay ── */
+.about-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: rgba(10, 10, 12, 0.97);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  opacity: 0;
+  transition: opacity 0.35s cubic-bezier(0.0, 0.0, 0.2, 1);
+}
+
+.about-overlay[hidden] {
+  display: none;
+}
+
+.about-overlay.visible {
+  opacity: 1;
+}
+
+/* Close button — fixed to viewport, respects safe areas */
+/* Restored to production recipe 2026-04-22 — matches .toolbar-btn's border +
+   handwritten shadow structure for sibling consistency. NO backdrop-filter:
+   about-overlay bg is ~97% opaque, so blur has no visible effect and only
+   risks the circle-AA compositor artifact. Slightly subdued bg (0.06 vs
+   toolbar 0.08) and color (0.5 vs 0.55) preserved for overlay context —
+   close button intentionally reads a touch quieter than primary-surface
+   toolbar buttons. */
+.about-close-btn {
+  position: fixed;
+  top: calc(20px + env(safe-area-inset-top, 0px));
+  right: calc(20px + env(safe-area-inset-right, 0px));
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  z-index: 301;
+  box-shadow:
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.08),
+    0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: background 0.2s, color 0.2s, border-color 0.2s,
+              box-shadow 0.2s, transform 0.15s;
+}
+
+.about-close-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.about-close-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.22);
+  color: rgba(255, 255, 255, 0.85);
+  box-shadow:
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.10),
+    0 1px 3px rgba(0, 0, 0, 0.30),
+    0 4px 12px rgba(0, 0, 0, 0.12);
+  transform: translateY(-0.5px);
+}
+
+.about-close-btn:active {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.10);
+  color: rgba(255, 255, 255, 0.6);
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.2),
+    0 1px 2px rgba(0, 0, 0, 0.15);
+  transform: translateY(0.5px);
+}
+
+/* ── About type scale ──
+   Same proportional system as intro: single --s reference, all sizes
+   as ratios of that variable. Tracking scales with font size so
+   spacing feels consistent across viewport widths.
+   At 48px: title 48, subtitle 20, body 16, credit 13. */
+.about-overlay {
+  --s: clamp(28px, 3.5vw + 0.25rem, 48px);
+}
+
+/* Content — centered column with comfortable reading measure */
+.about-content {
+  max-width: 600px;
+  padding: round(calc(var(--s) * 80 / 48), 1px) round(calc(var(--s) * 24 / 48), 1px);
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity 0.4s cubic-bezier(0.0, 0.0, 0.2, 1) 0.1s,
+              transform 0.4s cubic-bezier(0.0, 0.0, 0.2, 1) 0.1s;
+}
+
+.about-overlay.visible .about-content {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.about-title {
+  font-family: 'Editorial New', Georgia, serif;
+  font-weight: 200;
+  font-size: round(var(--s), 1px);
+  color: var(--cream-primary);
+  letter-spacing: calc(var(--s) * 2 / 48);
+  margin: 0 0 round(calc(var(--s) * 6 / 48), 1px);
+  line-height: 1.1;
+}
+
+.about-subtitle {
+  font-family: var(--font-display);
+  font-weight: 300;
+  font-size: clamp(14px, round(calc(var(--s) * 20 / 48), 1px), 20px);
+  color: var(--cream-subtitle);
+  letter-spacing: calc(var(--s) * 1 / 48);
+  margin: 0 0 round(calc(var(--s) * 40 / 48), 1px);
+}
+
+.about-body {
+  font-family: var(--font-display);
+  font-weight: 300;
+  font-size: clamp(12px, round(calc(var(--s) * 16 / 48), 1px), 16px);
+  line-height: 1.75;
+  color: var(--cream-secondary);
+  letter-spacing: calc(var(--s) * 1 / 48);
+}
+
+.about-body p {
+  margin: 0 0 1.4em;
+}
+
+.about-body p:last-child {
+  margin-bottom: 0;
+}
+
+.about-footer {
+  margin-top: round(calc(var(--s) * 48 / 48), 1px);
+  padding-top: round(calc(var(--s) * 24 / 48), 1px);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: round(calc(var(--s) * 4 / 48), 1px);
+}
+
+.about-credit {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(10px, round(calc(var(--s) * 13 / 48), 1px), 13px);
+  color: var(--cream-muted);
+  letter-spacing: calc(var(--s) * 1 / 48);
+}
+
+/* Inline link within the about footer credit. No underline, no color shift
+   at rest — inherits cream-muted from the surrounding text so the footer
+   reads as one line. Hover brightens the link (cream-muted → cream-muted-hover)
+   as the sole signal that this text is interactive, with pointer cursor as
+   secondary affordance. Editorial/minimal register matches the brand voice. */
+.about-credit-link {
+  color: inherit;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.about-credit-link:hover {
+  color: var(--cream-muted-hover);
+}
+
+/* :focus-visible inherits the global warm-cream outline from :root — no override needed. */
+
+/* ── Audio Scope (bottom overlay, key 3) ── */
+.audio-scope-canvas {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  z-index: 200;
+  pointer-events: auto;
+}

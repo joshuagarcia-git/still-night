@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Still Night</title>
+  <meta name="description" content="A painting you can play. Still Night turns Van Gogh's Starry Night into an interactive instrument that answers your touch with sound.">
+  <meta name="author" content="Joshua Garcia">
+  <meta name="theme-color" content="#0b0b0d">
+  <link rel="canonical" href="https://stillnight.joshua-garcia.com/">
+
+  <!-- Open Graph (Facebook, LinkedIn, iMessage, Discord, Slack, etc.) -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://stillnight.joshua-garcia.com/">
+  <meta property="og:title" content="Still Night — A painting you can play">
+  <meta property="og:description" content="A painting you can play. Still Night turns Van Gogh's Starry Night into an interactive instrument that answers your touch with sound.">
+  <meta property="og:image" content="https://stillnight.joshua-garcia.com/assets/og-image.jpg">
+  <meta property="og:image:type" content="image/jpeg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Still Night — a dithered rendering of Van Gogh's Starry Night with the tagline 'A painting you can play'">
+  <meta property="og:site_name" content="Still Night">
+
+  <!-- Twitter Card (falls back to Open Graph where possible) -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Still Night — A painting you can play">
+  <meta name="twitter:description" content="A painting you can play. Still Night turns Van Gogh's Starry Night into an interactive instrument that answers your touch with sound.">
+  <meta name="twitter:image" content="https://stillnight.joshua-garcia.com/assets/og-image.jpg">
+
+  <link rel="icon" href="favicon.ico" sizes="32x32">
+  <link rel="icon" href="favicon-192.png" type="image/png" sizes="192x192">
+  <link rel="icon" href="favicon-512.png" type="image/png" sizes="512x512">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="preload" href="assets/fonts/EditorialNew-Ultralight.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/fonts/NeueHaasDisplayRoman.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/fonts/NeueHaasDisplayLight.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/starry_night.webp" as="image">
+  <link rel="preload" href="assets/flow_field.webp" as="image">
+  <link rel="preload" href="assets/cypress_flow_field.webp" as="image">
+  <link rel="preload" href="assets/nocturne.data.dvs.br" as="fetch" crossorigin="anonymous">
+  <link rel="modulepreload" href="js/main.js">
+  <link rel="modulepreload" href="js/ui.js">
+  <link rel="modulepreload" href="js/gl-renderer.js">
+  <link rel="modulepreload" href="js/segmentation.js">
+  <link rel="modulepreload" href="js/prebake/prebaked-loader.js">
+  <link rel="modulepreload" href="js/audio/region-synths.js">
+  <link rel="modulepreload" href="js/dither/dither-engine.js">
+  <link rel="modulepreload" href="js/dither/canvas-renderer.js">
+  <link rel="modulepreload" href="js/dither/points.js">
+  <link rel="modulepreload" href="js/dither/importance.js">
+  <link rel="modulepreload" href="js/debug/perf-overlay.js">
+  <link rel="modulepreload" href="js/debug/audio-diagnostic.js">
+  <link rel="modulepreload" href="js/audio/audio-analyzer.js">
+  <link rel="modulepreload" href="js/touch-trail.js">
+  <link rel="modulepreload" href="js/ambient-glow-v2.js">
+  <link rel="modulepreload" href="js/dither/matrices.js">
+  <link rel="modulepreload" href="js/dither/palettes.js">
+  <link rel="modulepreload" href="js/dither/color.js">
+  <link rel="modulepreload" href="js/prebake/dvs-format.js">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body style="background:#0b0b0d">
+  <main class="app-layout">
+    <section class="canvas-area">
+      <div class="canvas-stack">
+      <div class="canvas-container">
+        <canvas id="preview-canvas"></canvas>
+        <canvas id="gl-canvas" role="img" aria-label="Still Night — an interactive painting of Van Gogh's Starry Night. Touch different parts of the painting to play sound."></canvas>
+        <canvas id="trail-canvas"></canvas>
+        <div class="canvas-placeholder" id="canvas-placeholder">
+          <div class="moon-loader">
+            <svg class="moon-svg" viewBox="0 0 1080 1080" aria-label="Loading" role="img">
+              <defs>
+                <linearGradient id="moon-edge" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%"   stop-color="#E8D44A" stop-opacity="0.45"/>
+                  <stop offset="100%" stop-color="#6B4E0A" stop-opacity="0.2"/>
+                </linearGradient>
+                <filter id="moon-grain" x="0" y="0" width="100%" height="100%">
+                  <feTurbulence type="fractalNoise" baseFrequency="0.05" numOctaves="1" stitchTiles="stitch" result="noise"/>
+                  <feColorMatrix type="saturate" values="0" in="noise" result="grayNoise"/>
+                  <feComponentTransfer in="grayNoise" result="subtleNoise">
+                    <feFuncR type="linear" slope="0.4" intercept="0.3"/>
+                    <feFuncG type="linear" slope="0.4" intercept="0.3"/>
+                    <feFuncB type="linear" slope="0.4" intercept="0.3"/>
+                  </feComponentTransfer>
+                  <feBlend mode="overlay" in="SourceGraphic" in2="subtleNoise" result="grained"/>
+                  <feComposite operator="in" in="grained" in2="SourceGraphic"/>
+                </filter>
+              </defs>
+              <path d="M846.983 669.053C768.952 669.062 692.348 648.132 625.164 608.445C557.979 568.758 502.675 511.769 465.021 443.424C427.367 375.079 408.744 297.882 411.094 219.886C413.444 141.891 436.68 65.9545 478.38 0C377.324 11.9221 281.666 52.0587 202.358 115.815C123.051 179.571 63.2984 264.371 29.9414 360.506C-3.41559 456.64 -9.02895 560.225 13.7439 659.401C36.5168 758.578 86.7556 849.338 158.709 921.291C230.662 993.245 321.422 1043.48 420.599 1066.26C519.775 1089.03 623.36 1083.42 719.495 1050.06C815.629 1016.7 900.429 956.949 964.185 877.642C1027.94 798.334 1068.08 702.677 1080 601.62C1010.32 645.795 929.487 669.187 846.983 669.053Z" fill="#B9A425" stroke="url(#moon-edge)" stroke-width="25" paint-order="stroke fill" filter="url(#moon-grain)"/>
+            </svg>
+          </div>
+        </div>
+        <div class="intro-overlay" id="intro-overlay" hidden>
+          <h1 class="intro-title">Still Night</h1>
+          <p class="intro-subtitle">A painting you can play.</p>
+          <button class="intro-play-btn" id="intro-play-btn">Play</button>
+          <p class="intro-hint">
+            <svg class="intro-hint-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3 18v-6a9 9 0 0 1 18 0v6"/>
+              <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/>
+            </svg>
+            Headphones recommended
+          </p>
+        </div>
+      </div>
+      <div class="canvas-toolbar" id="canvas-toolbar">
+        <div class="toolbar-group">
+          <button class="toolbar-btn" id="mute-btn" data-tooltip="Mute" aria-label="Mute">
+            <svg class="toolbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <!-- speaker-on (volume-2) -->
+              <g class="icon-unmuted">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+                <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+              </g>
+              <!-- speaker-off (volume-x) -->
+              <g class="icon-muted">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                <line x1="23" y1="9" x2="17" y2="15"/>
+                <line x1="17" y1="9" x2="23" y2="15"/>
+              </g>
+            </svg>
+          </button>
+          <button class="toolbar-btn" id="about-btn" data-tooltip="About" aria-label="About">
+            <svg class="toolbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="16" x2="12" y2="12"/>
+              <line x1="12" y1="8" x2="12.01" y2="8"/>
+            </svg>
+          </button>
+        </div>
+        <div class="mode-pills" id="mode-pills" role="radiogroup" aria-label="Musical mode">
+          <button class="mode-pill is-active" role="radio" aria-checked="true" id="mode-minor-btn"
+                  aria-label="Dreamy, darker sound"
+                  data-tooltip="Darker sound">Dreamy</button>
+          <button class="mode-pill" role="radio" aria-checked="false" id="mode-major-btn"
+                  aria-label="Vivid, brighter sound"
+                  data-tooltip="Brighter sound">Vivid</button>
+        </div>
+      </div>
+      </div><!-- /.canvas-stack -->
+    </section>
+
+    <aside class="control-panel">
+      <details class="stats-panel" id="stats-panel">
+        <summary>Stats <button id="copy-stats-btn" class="copy-stats-btn" title="Copy stats to clipboard">Copy</button></summary>
+        <div class="stats-grid" id="stats-grid">
+          <div class="stats-empty">Run a dither to see stats</div>
+        </div>
+      </details>
+    </aside>
+  </main>
+
+  <div class="about-overlay" id="about-overlay" hidden role="dialog" aria-modal="true" aria-label="About Still Night">
+    <button class="about-close-btn" id="about-close-btn" aria-label="Close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <line x1="18" y1="6" x2="6" y2="18"/>
+        <line x1="6" y1="6" x2="18" y2="18"/>
+      </svg>
+    </button>
+    <div class="about-content">
+      <h1 class="about-title">Still Night</h1>
+      <p class="about-subtitle">A painting you can play.</p>
+      <div class="about-body">
+        <p>This isn't music played over a painting. The painting is the instrument.</p>
+        <p>For 400 years, people have tried to match color and sound. Most assumed notes translated to hues. It doesn't work that way.</p>
+        <p>Research found something simpler. Brightness shapes how we feel sound, the same way it shapes how we feel color. Bright colors make sound feel higher, lighter, and happier. Dark colors make sound feel lower, heavier, and sadder. It isn't a code. It's a connection we're born with.</p>
+        <p>Still Night reads Van Gogh's Starry Night and lets the connection play. The dark parts of the painting answer low. The bright parts ring high.</p>
+      </div>
+      <footer class="about-footer">
+        <span class="about-credit">Created by <a href="https://www.joshua-garcia.com/" class="about-credit-link" target="_blank" rel="noopener noreferrer">Joshua Garcia</a></span>
+        <span class="about-credit"><a href="https://www.joshua-garcia.com/still-night" class="about-credit-link" target="_blank" rel="noopener noreferrer">Learn more</a></span>
+      </footer>
+    </div>
+  </div>
+
+  <script>
+    // Force all AudioContexts to use larger buffers and lower sample rate.
+    // latencyHint: 0.04 → ~1764-frame buffer (~40ms callback vs default ~10ms).
+    // sampleRate: 22050 → halves per-second processing cost (128-sample quanta
+    // generated half as frequently). Nyquist at 11025Hz covers all fundamentals
+    // (highest note D6 = 1175Hz) and most harmonics.
+    // Must run BEFORE Tone.js loads (standardized-audio-context creates contexts
+    // during feature detection at import time).
+    (function() {
+      var NativeAudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!NativeAudioContext) return;
+      window.AudioContext = function(opts) {
+        return new NativeAudioContext(Object.assign({}, opts, { latencyHint: 0.04, sampleRate: 22050 }));
+      };
+      window.AudioContext.prototype = NativeAudioContext.prototype;
+    })();
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/tone@14.7.77/build/Tone.js"></script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "name": "still-night",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Still Night — dithered point-cloud rendering of Starry Night with multi-vortex particle physics and region-reactive audio",
+  "scripts": {
+    "prebake": "node tools/prebake.js",
+    "serve": "node _serve.cjs"
+  },
+  "devDependencies": {
+    "sharp": "^0.33.5"
+  }
+}
