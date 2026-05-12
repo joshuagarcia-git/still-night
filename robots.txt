@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://stillnight.joshua-garcia.com/sitemap.xml
