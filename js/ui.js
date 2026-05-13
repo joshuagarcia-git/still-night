@@ -2314,6 +2314,19 @@ async function loadDefaultImage() {
     if (new URLSearchParams(location.search).has('loadError')) {
       throw new Error('Simulated load failure');
     }
+    // Loading-status text appears below moon if load exceeds 2.5s from
+    // navigation start (not from when loadDefaultImage runs; on slow
+    // networks, JS module download can be most of the wait). Fires
+    // immediately if already past threshold.
+    setTimeout(() => {
+      if (_loadTimeline.imagesLoaded) return;
+      if (canvasPlaceholder && canvasPlaceholder.classList.contains('canvas-error')) return;
+      const el = document.getElementById('loading-status');
+      if (el) {
+        el.textContent = 'Painting Starry Night...';
+        el.classList.add('visible');
+      }
+    }, Math.max(0, 2500 - performance.now()));
     // ?loadDelay=<seconds> — artificial delay to test loading indicator (max 30s)
     const _delayParam = new URLSearchParams(location.search).get('loadDelay');
     if (_delayParam) {
@@ -2590,6 +2603,10 @@ async function loadDefaultImage() {
     if (moonEl) moonEl.classList.add('moon-exit');
     applyDithering();
     _loadTimeline.postDither = performance.now();
+    {
+      const el = document.getElementById('loading-status');
+      if (el) el.classList.remove('visible');
+    }
     // Clean up placeholder after moon exit animation completes.
     // .moon-exit dissolves the moon over 0.5s; hide placeholder after 800ms.
     setTimeout(() => { canvasPlaceholder.hidden = true; }, 800);
