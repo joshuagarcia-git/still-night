@@ -398,6 +398,8 @@ body {
 .canvas-retry-btn {
   margin-top: round(calc(var(--s) * 16 / 48), 1px);
   background: rgba(255, 255, 255, 0.08);
+  border: none;
+  box-shadow: var(--elevation-btn-rest);
 }
 
 .canvas-retry-btn:hover:not(:disabled) {
