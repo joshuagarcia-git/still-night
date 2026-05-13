@@ -254,6 +254,7 @@ body {
   height: clamp(48px, 8vw, 80px);
   opacity: 0;
   transform: scale(0.92);
+  will-change: transform, opacity;
   filter: drop-shadow(0 0 2px rgba(185, 164, 37, 0.5))
           drop-shadow(0 0 6px rgba(185, 164, 37, 0.25))
           drop-shadow(0 0 16px rgba(185, 164, 37, 0.12));
