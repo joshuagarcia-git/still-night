@@ -130,6 +130,7 @@ body {
    stack is centered within canvas-area. Padding uses safe-area insets for
    notched devices (iPhone/Android cutouts). */
 .canvas-area {
+  position: relative;
   display: grid;
   place-items: center;
   grid-template-columns: minmax(0, 1fr);
@@ -145,7 +146,7 @@ body {
 /* Canvas stack — the painting + toolbar as ONE visual unit. Shrinks as a
    whole via --canvas-scale so children (canvas + toolbar) always move
    together. Grid rows: 1fr for canvas, auto for toolbar. Max-width and
-   max-height cap the unit at 75% of the canvas-area. */
+   max-height cap the unit at 92% of the canvas-area. */
 .canvas-stack {
   --canvas-scale: 0.92;
   display: grid;
@@ -785,6 +786,33 @@ input[type="range"]::-moz-range-thumb {
     border-top: 1px solid var(--border);
   }
 
+  /* Byline sits well above the safe-area floor on phones so it reads as a
+     deliberate signature rather than crammed against the viewport edge. The
+     48px floor wins on every phone width (env safe-area is ~34px on iPhone). */
+  .canvas-byline {
+    bottom: max(48px, env(safe-area-inset-bottom));
+  }
+}
+
+/* Portrait viewports where the viewport is taller than the painting's aspect
+   (2048/1622 ≈ 1.263). In that case the painting letterboxes inside the 1fr
+   canvas-container row, creating large dead bands above and below the painting
+   and making the toolbar feel disconnected from it. Constraining the container
+   to the painting's aspect ratio and making the stack content-sized produces a
+   tight painting + toolbar cluster, centered in the canvas-area.
+
+   Aspect-ratio value MUST stay in sync with the painting's source pixel
+   dimensions (2048×1622), which are also encoded in the prebake header. */
+@media (max-aspect-ratio: 2048/1622) {
+  .canvas-stack {
+    grid-template-rows: auto auto;
+    height: auto;
+  }
+
+  .canvas-container {
+    aspect-ratio: 2048 / 1622;
+    height: auto;
+  }
 }
 
 /* Touch devices: 44pt minimum touch targets + suppress hover tooltips */
@@ -1005,6 +1033,38 @@ button.intro-play-btn:active {
 .canvas-toolbar.visible {
   opacity: 1;
   pointer-events: auto;
+}
+
+.canvas-byline {
+  --s: clamp(28px, 3.5vw + 0.25rem, 48px);
+  position: absolute;
+  left: 50%;
+  bottom: max(clamp(18px, 3vmin, 36px), env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  text-align: center;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(10px, round(calc(var(--s) * 13 / 48), 1px), 13px);
+  color: var(--cream-muted);
+  letter-spacing: calc(var(--s) * 1 / 48);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.4s ease;
+}
+
+.canvas-area:has(.canvas-toolbar.visible) .canvas-byline {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.canvas-byline-link {
+  color: inherit;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.canvas-byline-link:hover {
+  color: var(--cream-muted-hover);
 }
 
 /* Circular icon buttons — restored to production recipe. Removing the border
