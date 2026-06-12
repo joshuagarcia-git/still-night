@@ -930,7 +930,11 @@ let radiantImageData = null;    // Radiant mood variant for A/B comparison
 let _activePaintingData = null; // currently active painting (original or mood variant)
 let _isRadiantActive = false;
 let _moodSwitchLock = false;   // debounce guard for M key re-dither
-let _radiantLoadStarted = false; // background-fetch guard so we only fire once per session
+let _radiantLoadStarted = false; // in-flight fetch guard — resets on failure so triggers can retry
+let _radiantWorkerUnsupported = false; // decode-worker probe failed — retries go straight to main thread
+let _radiantWorker = null;       // in-flight decode worker — module handle so pagehide can terminate it
+let _radiantAttempt = 0;         // generation counter — outcomes from superseded attempts must not touch flags
+let _playClicked = false;        // visitor pressed Play this page lifetime (survives bfcache restore)
 let _nocturneParticleCount = 0; // last Nocturne extracted count — diagnostic baseline
 let _moodTuningPanel = null;   // mood tuning panel DOM element
 
@@ -1027,7 +1031,12 @@ function switchMood(toRadiant) {
   if (toRadiant === _isRadiantActive) return;
   if (!renderer || !renderer.isRunning || renderer.isIntroMode()) return;
   if (toRadiant && !radiantImageData) {
-    console.warn('[Mood] Radiant variant not loaded');
+    // User-driven retry path: reachable because _updatePillStates keeps the
+    // pill un-disabled whenever no load is in flight (aria-disabled blocks
+    // clicks entirely — pointer-events:none in style.css). No-op if a fetch
+    // is somehow already running.
+    loadRadiantInBackground();
+    console.warn('[Mood] Radiant variant not loaded yet');
     return;
   }
 
@@ -1120,10 +1129,16 @@ function _updatePillStates() {
     majorBtn.setAttribute('aria-disabled', 'true');
   } else {
     minorBtn.removeAttribute('aria-disabled');
-    if (!radiantImageData) {
+    if (!radiantImageData && _radiantLoadStarted) {
+      // Genuinely in flight — disable for the few seconds it takes.
       majorBtn.setAttribute('aria-disabled', 'true');
       majorBtn.setAttribute('data-tooltip', 'Loading…');
     } else {
+      // Loaded, or not currently loading (e.g. a failed attempt reset the
+      // flag). The failed state must stay clickable: aria-disabled applies
+      // pointer-events:none (style.css .mode-pill[aria-disabled]), which
+      // would make the click-to-retry path in switchMood unreachable by
+      // mouse/touch.
       majorBtn.removeAttribute('aria-disabled');
       majorBtn.setAttribute('data-tooltip', 'Brighter sound');
     }
@@ -2284,28 +2299,115 @@ function applyDithering() {
 }
 
 /**
- * Fires a background fetch for the radiant mood variant. Not awaited — the
- * critical load path must not block on this asset. Most visitors never press M
- * to trigger the mood swap, and a 2.5s radiant download was previously gating
- * the intro reveal on every load for a feature most users never see.
+ * Fires a background fetch + decode for the radiant mood variant. Not
+ * awaited — callers are fire-and-forget triggers. Deferred until the visitor
+ * shows intent (reveal-complete callback, bfcache restore, Vivid pill click):
+ * the 1.1 MB download used to start during initial load for every visitor,
+ * but most never touch the mood toggle, and bandwidth is billed (June 2026).
  *
- * Idempotent via _radiantLoadStarted so double-calls (e.g. prebaked path
- * falling through to loadDefaultImage) don't issue two fetches. On success,
- * populates radiantImageData; on failure, leaves it null and the M-key handler
- * already guards against that.
+ * Decode path: classic worker — fetch, decode, and pixel readback all off
+ * the main thread, RGBA buffer transferred back (zero copy) — so arrival
+ * never hitches the live canvas. Falls back to the shared loadImageFromPath
+ * (same loader as the main painting; synchronous decode) when OffscreenCanvas
+ * is unavailable (pre-16.4 Safari) or the worker fails to boot — on those
+ * browsers a one-time decode hitch matches the pre-deferral shipped behavior.
+ *
+ * Idempotent while a fetch is in flight (_radiantLoadStarted). On failure
+ * the flag RESETS so the next trigger retries — post-Play loads can hit
+ * transient mobile network drops, and a one-shot flag would strand the
+ * Vivid pill on "Loading…" forever. A watchdog bounds the in-flight state:
+ * a black-holed fetch never rejects, which would otherwise block every
+ * retry trigger for the session. This function owns the Vivid pill state —
+ * it syncs _updatePillStates on start, success, and failure.
  */
 function loadRadiantInBackground() {
-  if (_radiantLoadStarted) return;
+  if (radiantImageData || _radiantLoadStarted) return;
   _radiantLoadStarted = true;
-  loadImageFromPath(document.createElement('canvas'), 'assets/starry_night_radiant.webp')
-    .then((data) => {
-      radiantImageData = data;
-      _log('[Mood] Radiant variant loaded in background (%dx%d)', data.width, data.height);
-      _updatePillStates();  // re-enable Major pill now that its image is available
-    })
-    .catch(() => {
-      console.warn('[Mood] Radiant variant not found — Major pill disabled');
-    });
+  _updatePillStates();  // pill shows "Loading…" while genuinely in flight
+  const attempt = ++_radiantAttempt;
+  const path = 'assets/starry_night_radiant.webp';
+  const t0 = performance.now();
+
+  const finish = (data, how) => {
+    radiantImageData = data;
+    _log('[Mood] Radiant variant loaded (%s, %dx%d, %dms)',
+      how, data.width, data.height, Math.round(performance.now() - t0));
+    _updatePillStates();  // re-enable Major pill now that its image is available
+  };
+  const fail = (err) => {
+    // Stale outcome: a watchdog or error from an attempt that was superseded
+    // (bfcache restore resets the flag and starts a new attempt; timers
+    // survive the freeze and fire late). Resetting the flag here would yank
+    // it out from under the live attempt and re-open a duplicate-download
+    // window. finish() needs no such guard — same image, last write wins.
+    if (attempt !== _radiantAttempt) return;
+    console.warn('[Mood] Radiant variant load failed — next trigger retries:', err);
+    _radiantLoadStarted = false;  // allow retry (pill click / bfcache restore)
+    _updatePillStates();  // pill back to clickable — a click retries via switchMood
+  };
+  const mainThreadPath = () => {
+    loadImageFromPath(document.createElement('canvas'), path)
+      .then((d) => finish(d, 'main thread'))
+      .catch(fail);
+  };
+
+  if (_radiantWorkerUnsupported ||
+      typeof OffscreenCanvas === 'undefined' || typeof Worker === 'undefined') {
+    mainThreadPath();
+    return;
+  }
+  let worker;
+  try {
+    worker = new Worker(new URL('./workers/image-decode-worker.js', import.meta.url));
+  } catch (e) {
+    mainThreadPath();
+    return;
+  }
+  _radiantWorker = worker;  // module handle — pagehide cleanup terminates it
+  let settled = false;
+  // Returns false if another outcome already settled this attempt.
+  const settle = () => {
+    if (settled) return false;
+    settled = true;
+    clearTimeout(watchdog);
+    worker.terminate();
+    if (_radiantWorker === worker) _radiantWorker = null;
+    return true;
+  };
+  // A fetch on a black-holed connection can hang for minutes without
+  // rejecting; without a bound, _radiantLoadStarted stays true and every
+  // retry trigger no-ops for the rest of the session. 90s is far beyond
+  // any plausible legit download time for 1.1 MB.
+  const watchdog = setTimeout(() => {
+    if (settle()) fail('timed out after 90s');
+  }, 90000);
+  worker.onmessage = (e) => {
+    if (!settle()) return;
+    const msg = e.data;
+    if (msg && msg.buffer) {
+      finish(new ImageData(new Uint8ClampedArray(msg.buffer), msg.width, msg.height), 'worker');
+    } else if (msg && msg.unsupported) {
+      // Worker environment can't decode (probe ran before any fetch, so no
+      // bandwidth was spent). Remember it so retries skip the worker.
+      _radiantWorkerUnsupported = true;
+      mainThreadPath();
+    } else {
+      // Worker booted but fetch/decode failed (offline, 404). Don't burn a
+      // second download attempt on the fallback path — report failure and
+      // let the next trigger retry.
+      fail(msg && msg.error);
+    }
+  };
+  worker.onmessageerror = () => {
+    if (settle()) fail('worker reply could not be deserialized');
+  };
+  worker.onerror = () => {
+    // Worker itself failed to load/execute — the download never started,
+    // so the main-thread path won't double-spend bandwidth.
+    if (settle()) mainThreadPath();
+  };
+  // Absolute URL: the worker resolves relative paths against js/workers/.
+  worker.postMessage({ path: new URL(path, document.baseURI).href });
 }
 
 async function loadDefaultImage() {
@@ -2362,7 +2464,9 @@ async function loadDefaultImage() {
     _activePaintingData = originalImageData;
     _isRadiantActive = false;
     _moodSwitchLock = false;
-    loadRadiantInBackground();
+    // Radiant variant is NOT fetched here — deferred to the reveal-complete
+    // callback (Play click) so visitors who bounce without playing never
+    // download the 1.1 MB image. See loadRadiantInBackground().
 
     // Hybrid prebake: if the data-only binary loaded, use its precomputed
     // BFS fields, curvature, eddy, regionMap, and clickRegionMap. Skip the
@@ -4510,6 +4614,7 @@ async function _initRenderer() {
       if (introPlayBtn.disabled) return;
       const _playT0 = performance.now();
       introPlayBtn.disabled = true;
+      _playClicked = true;  // gates the bfcache radiant-load trigger
       initAudioOnGesture();  // build + resume AudioContext during reveal animation
       _log(`%c[PlayClick]%c  Sync handler: ${(performance.now() - _playT0).toFixed(0)}ms`, 'color: #f0f; font-weight: bold', 'color: #ccc');
       introOverlay.classList.add('fade-out');
@@ -4525,7 +4630,14 @@ async function _initRenderer() {
       breathFading = false;
       renderer.setIntroGlow(1.0); // restore in case breathing left it mid-cycle
       renderer.startReveal(flashMouseX, flashMouseY, 1.5, () => {
-        // Reveal complete — brightness and tonal bg already eased during reveal
+        // Reveal complete — brightness and tonal bg already eased during reveal.
+        // Start the radiant variant download now: network is idle post-load,
+        // the mood toggle wasn't usable until this point anyway, and only
+        // visitors who pressed Play pay for the 1.1 MB. Decode runs in a
+        // worker, so arrival doesn't hitch the live canvas. setTimeout keeps
+        // the worker bootstrap (~1-2ms) out of this rAF tick — this callback
+        // fires inside the render loop on the reveal handoff frame.
+        setTimeout(loadRadiantInBackground, 0);
       });
       // Clear phantom-cursor state before main loop takes over. On touch devices,
       // iOS synthesizes mousemove on Play tap → flashMouseOnCanvas=true lingers
@@ -4561,6 +4673,14 @@ async function _initRenderer() {
       _extractWorker.terminate();
       _extractWorker = null;
     }
+    // Terminate in-flight radiant decode worker — same no-leak policy as
+    // above, and load-bearing for bfcache: a frozen worker would RESUME its
+    // fetch on restore, racing the pageshow handler's fresh attempt into a
+    // duplicate 1.1 MB download.
+    if (_radiantWorker) {
+      _radiantWorker.terminate();
+      _radiantWorker = null;
+    }
   });
 
   // ── bfcache restoration: skip intro when page is restored from back/forward cache ──
@@ -4583,6 +4703,17 @@ async function _initRenderer() {
       // and audio is silently broken (tester bug report April 5).
       resetAudioInit();
       _audioPreBuilt = false;
+      // Radiant deferral: the reveal callback never fires on this path
+      // (endIntroMode cancels it), and any in-flight attempt was torn down
+      // by the pagehide handler (worker terminated), possibly leaving
+      // _radiantLoadStarted stuck true — so force a fresh attempt. Gated on
+      // _playClicked: a visitor who never pressed Play shouldn't pay for
+      // the download just because they bounced off the byline link and came
+      // back; for them the (clickable) Vivid pill loads it on demand.
+      if (_playClicked && !radiantImageData) {
+        _radiantLoadStarted = false;
+        loadRadiantInBackground();
+      }
     }
   });
 
