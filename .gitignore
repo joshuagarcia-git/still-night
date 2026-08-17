@@ -33,3 +33,7 @@ dist/
 
 # Local Netlify folder
 .netlify
+
+# Written by `netlify dev` when it boots the edge function runtime. Pins
+# Netlify's own bootstrap URLs, not anything this project depends on.
+deno.lock

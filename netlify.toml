@@ -1,3 +1,39 @@
+# ── Edge filter: scraper blocking + per-IP throttle ──────────────────────
+# See netlify/edge-functions/bot-filter.js for the rationale and the lists.
+#
+# Scoping is deliberate. The document stops a crawler before it can discover
+# any asset URL, and /assets/* covers the ~6 MB of the 7.3 MB per visit that
+# actually costs bandwidth. /js/* and /css/* are left off: they are small,
+# and an isolate hop on all twenty module requests would cost load time for
+# no meaningful byte saving.
+#
+# Invocation cost is about eight per fresh visit (one document, four webp,
+# three fonts), which sits far under the free-plan allowance.
+[[edge_functions]]
+  path = "/"
+  function = "bot-filter"
+
+[[edge_functions]]
+  path = "/index.html"
+  function = "bot-filter"
+
+# The pre-baked payload is excluded on purpose. It ships already Brotli
+# encoded with a hand-set Content-Encoding (see the header rule below), and
+# passing it through an edge function decompresses the body while leaving
+# that header in place. The browser then tries to Brotli-decode bytes that
+# are already plain and fails with ERR_CONTENT_DECODING_FAILED, which breaks
+# the whole loading path. Verified locally: the 3.4 MB file came back as
+# 26.5 MB of decoded data still labelled `Content-Encoding: br`.
+#
+# Every other asset passes through byte identical, so only this one opts out.
+# The trade is that the payload stays reachable by direct URL, which is
+# acceptable because its URL is only discoverable from the document, and the
+# document is filtered.
+[[edge_functions]]
+  path = "/assets/*"
+  excludedPath = "/assets/*.dvs.br"
+  function = "bot-filter"
+
 # Netlify serves pre-baked .dvs.br payloads as-is with Content-Encoding: br.
 # Auto-compression only covers text MIMEs — application/octet-stream passes
 # through uncompressed unless we tell the edge layer the file is already
