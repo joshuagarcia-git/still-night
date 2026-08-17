@@ -41,13 +41,35 @@
 # JS, so the prebaked-loader reads the full uncompressed blob.
 #
 # See: answers.netlify.com/t/serving-pre-compressed-brotli-files/53515
+#
+# Cache-Control for this path comes from the /assets/* rule below. Setting it
+# in both places would leave two rules writing the same header.
 [[headers]]
   for = "/assets/*.dvs.br"
   [headers.values]
     Content-Encoding = "br"
     Content-Type = "application/octet-stream"
-    Cache-Control = "public, max-age=31536000, immutable"
     Vary = "Accept-Encoding"
+
+# ── Long-lived caching for stable assets ─────────────────────────────────
+# Netlify's default is `public, max-age=0, must-revalidate` plus an ETag, so
+# returning visitors already avoid re-downloading bytes; they get a 304 with
+# no body. What this rule saves is the conditional round trip on the nine
+# asset requests per visit, which is a latency win more than a bandwidth one.
+#
+# Only /assets/* gets `immutable`, and that limit is load-bearing. Nothing in
+# this repo is content hashed, so a year-long cache on /js/* or /css/* would
+# strand returning visitors on stale code with no way to bust it short of
+# renaming files. Those keep Netlify's revalidating default, as does
+# index.html, so a deploy still reaches everyone immediately.
+#
+# The files here are safe because their content is fixed: the painting and
+# its derived maps, the pre-baked payload, and the three webfonts. Replacing
+# one means giving it a new filename.
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
 
 # Content Security Policy — permissive tier. Locks down object/base/frame
 # but allows inline scripts + styles because the site uses inline style
