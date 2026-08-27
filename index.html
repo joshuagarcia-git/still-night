@@ -60,6 +60,75 @@
   <link rel="modulepreload" href="js/dither/color.js">
   <link rel="modulepreload" href="js/prebake/dvs-format.js">
 
+  <!-- Structured data. The page is a canvas: a crawler sees markup, not the
+       artwork. This states in machine-readable terms what the work is, who
+       made it, and which accounts are the same person. It also carries the
+       conceptual copy that otherwise only exists inside the About dialog,
+       which is hidden on load and therefore discounted by search engines. -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebSite",
+        "@id": "https://stillnight.joshua-garcia.com/#website",
+        "url": "https://stillnight.joshua-garcia.com/",
+        "name": "Still Night",
+        "inLanguage": "en",
+        "publisher": { "@id": "https://stillnight.joshua-garcia.com/#joshua" }
+      },
+      {
+        "@type": ["CreativeWork", "WebApplication"],
+        "@id": "https://stillnight.joshua-garcia.com/#work",
+        "name": "Still Night",
+        "headline": "A painting you can play",
+        "url": "https://stillnight.joshua-garcia.com/",
+        "image": "https://stillnight.joshua-garcia.com/assets/og-image.jpg",
+        "inLanguage": "en",
+        "applicationCategory": "Interactive art",
+        "operatingSystem": "Any (web browser)",
+        "browserRequirements": "Requires WebGL 2 and the Web Audio API",
+        "description": "Still Night turns Vincent van Gogh's The Starry Night into a playable instrument. The painting is rebuilt as a WebGL2 point cloud in which brightness sets musical register, so dark regions answer low and bright regions ring high, while the direction of Van Gogh's brushstrokes drives the movement of the particles.",
+        "abstract": "An interactive artwork in which the painting is the instrument rather than a visualiser. It follows crossmodal perception research: brightness shapes how we hear pitch in the same way it shapes how we see colour, so the painting's own light and dark decide what it sounds like.",
+        "genre": ["Interactive art", "Generative art", "Creative coding"],
+        "keywords": "interactive art, generative art, creative coding, WebGL2, point cloud, particle system, Web Audio, Tone.js, Van Gogh, The Starry Night, audiovisual instrument, crossmodal perception",
+        "isBasedOn": {
+          "@type": "VisualArtwork",
+          "name": "The Starry Night",
+          "dateCreated": "1889",
+          "creator": { "@type": "Person", "name": "Vincent van Gogh" }
+        },
+        "author": { "@id": "https://stillnight.joshua-garcia.com/#joshua" },
+        "creator": { "@id": "https://stillnight.joshua-garcia.com/#joshua" },
+        "copyrightHolder": { "@id": "https://stillnight.joshua-garcia.com/#joshua" },
+        "copyrightYear": "2026",
+        "isPartOf": { "@id": "https://stillnight.joshua-garcia.com/#website" }
+      },
+      {
+        "@type": "Person",
+        "@id": "https://stillnight.joshua-garcia.com/#joshua",
+        "name": "Joshua Garcia",
+        "url": "https://www.joshua-garcia.com/",
+        "jobTitle": "Product Designer and Creative Technologist",
+        "sameAs": [
+          "https://www.joshua-garcia.com/",
+          "https://github.com/joshuagarcia-git",
+          "https://www.linkedin.com/in/joshuagarciadesign"
+        ]
+      },
+      {
+        "@type": "SoftwareSourceCode",
+        "@id": "https://stillnight.joshua-garcia.com/#source",
+        "name": "Still Night source code",
+        "codeRepository": "https://github.com/joshuagarcia-git/still-night",
+        "programmingLanguage": ["JavaScript", "GLSL"],
+        "runtimePlatform": "WebGL 2, Web Audio API",
+        "author": { "@id": "https://stillnight.joshua-garcia.com/#joshua" },
+        "about": { "@id": "https://stillnight.joshua-garcia.com/#work" }
+      }
+    ]
+  }
+  </script>
 
   <link rel="stylesheet" href="css/style.css">
 </head>
